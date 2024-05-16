@@ -11,9 +11,8 @@ use crate::{
   },
 };
 use diagnostics::{Diagnostics, DiagnosticsConfig, ERR_INDENT_SIZE};
-use fun::Name;
+use fun::{Name, Visibility};
 use net::hvm_to_net::hvm_to_net;
-use std::collections::HashMap;
 
 pub mod diagnostics;
 pub mod fun;
@@ -86,7 +85,7 @@ pub fn desugar_book(
   diagnostics_cfg: DiagnosticsConfig,
   args: Option<Vec<Term>>,
 ) -> Result<Diagnostics, Diagnostics> {
-  load_imports(book, diagnostics_cfg)?;
+  apply_imports(book, diagnostics_cfg)?;
   let mut ctx = Ctx::new(book, diagnostics_cfg);
 
   ctx.check_shared_names();
@@ -160,55 +159,44 @@ pub fn desugar_book(
   }
 }
 
-fn load_imports(
-  book: &mut Book,
-  diagnostics_cfg: DiagnosticsConfig,
-) -> Result<HashMap<Name, Name>, Diagnostics> {
-  let book_mods = std::mem::take(&mut book.mods);
-  let mut mods = Vec::new();
-  let book_name_map: HashMap<_, _> = book_mods
-    .into_iter()
-    .map(|(k, (v1, v2))| {
-      mods.push((k.clone(), v2));
-      (k, v1)
-    })
-    .collect();
+fn apply_imports(book: &mut Book, diagnostics_cfg: DiagnosticsConfig) -> Result<(), Diagnostics> {
+  for (src, package) in &mut book.imports.pkgs {
+    apply_imports(package, diagnostics_cfg)?;
 
-  for (src, module) in &mut mods {
-    let mut name_map = load_imports(module, diagnostics_cfg)?;
-    let mut ctx = Ctx::new(module, diagnostics_cfg);
+    let mut ctx = Ctx::new(package, diagnostics_cfg);
     ctx.resolve_refs()?; // TODO: does not work for adts
 
-    let mut defs = std::mem::take(&mut module.defs);
+    let mut defs = std::mem::take(&mut package.defs);
 
-    for (_, def) in &mut defs {
+    for def in defs.values_mut() {
       match def.visibility {
-        fun::Visibility::Normal if book_name_map.contains_key(&def.name) => {
-          def.visibility = fun::Visibility::Import;
-          name_map.remove(&def.name);
+        Visibility::Normal if book.imports.map.contains_key(&def.name) => {
+          def.visibility = Visibility::Import;
         }
-        fun::Visibility::Inacessible => _ = dbg!(name_map.remove(&def.name)),
+        Visibility::Inaccessible => {}
         _ => {
-          def.visibility = fun::Visibility::Inacessible;
-          if let Some(n) = name_map.get(&def.name) {
-            def.name = n.clone();
+          def.visibility = Visibility::Inaccessible;
+
+          // Mangle inaccessible definitions so that users cant call them
+          let new_name = if let Some(n) = package.imports.map.get(&def.name) {
+            Name::new(format!("${}$", n))
           } else {
-            // Mangle unacessible definitions so that users cant call them
-            let new_name = Name::new(format!("${src}/{}$", def.name));
-            name_map.insert(def.name.clone(), new_name.clone());
-            def.name = new_name;
-          }
+            Name::new(format!("${}/{}$", src, def.name))
+          };
+
+          package.imports.map.insert(def.name.clone(), new_name.clone());
+          def.name = new_name;
         }
       }
     }
 
     for (_, mut def) in defs {
-      def.subst_refs(&name_map);
+      def.subst_refs(&package.imports.map);
       book.defs.insert(def.name.clone(), def);
     }
   }
 
-  Ok(book_name_map)
+  Ok(())
 }
 
 pub fn run_book(

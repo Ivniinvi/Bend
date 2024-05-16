@@ -52,7 +52,7 @@ impl Ctx<'_> {
           Used::NonBuiltin => {
             // Used by a non-builtin definition.
             // Prune if `prune_all`, otherwise show a warning.
-            if prune_all {
+            if prune_all || def.is_generated() {
               self.book.defs.shift_remove(&def);
             } else {
               self.info.add_rule_warning("Definition is unused.", WarningType::UnusedDefinition, def);
