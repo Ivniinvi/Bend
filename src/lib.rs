@@ -11,7 +11,9 @@ use crate::{
   },
 };
 use diagnostics::{Diagnostics, DiagnosticsConfig, ERR_INDENT_SIZE};
+use fun::Name;
 use net::hvm_to_net::hvm_to_net;
+use std::collections::HashMap;
 
 pub mod diagnostics;
 pub mod fun;
@@ -84,6 +86,7 @@ pub fn desugar_book(
   diagnostics_cfg: DiagnosticsConfig,
   args: Option<Vec<Term>>,
 ) -> Result<Diagnostics, Diagnostics> {
+  load_imports(book, diagnostics_cfg)?;
   let mut ctx = Ctx::new(book, diagnostics_cfg);
 
   ctx.check_shared_names();
@@ -155,6 +158,57 @@ pub fn desugar_book(
   } else {
     Err(ctx.info)
   }
+}
+
+fn load_imports(
+  book: &mut Book,
+  diagnostics_cfg: DiagnosticsConfig,
+) -> Result<HashMap<Name, Name>, Diagnostics> {
+  let book_mods = std::mem::take(&mut book.mods);
+  let mut mods = Vec::new();
+  let book_name_map: HashMap<_, _> = book_mods
+    .into_iter()
+    .map(|(k, (v1, v2))| {
+      mods.push((k.clone(), v2));
+      (k, v1)
+    })
+    .collect();
+
+  for (src, module) in &mut mods {
+    let mut name_map = load_imports(module, diagnostics_cfg)?;
+    let mut ctx = Ctx::new(module, diagnostics_cfg);
+    ctx.resolve_refs()?; // TODO: does not work for adts
+
+    let mut defs = std::mem::take(&mut module.defs);
+
+    for (_, def) in &mut defs {
+      match def.visibility {
+        fun::Visibility::Normal if book_name_map.contains_key(&def.name) => {
+          def.visibility = fun::Visibility::Import;
+          name_map.remove(&def.name);
+        }
+        fun::Visibility::Inacessible => _ = dbg!(name_map.remove(&def.name)),
+        _ => {
+          def.visibility = fun::Visibility::Inacessible;
+          if let Some(n) = name_map.get(&def.name) {
+            def.name = n.clone();
+          } else {
+            // Mangle unacessible definitions so that users cant call them
+            let new_name = Name::new(format!("${src}/{}$", def.name));
+            name_map.insert(def.name.clone(), new_name.clone());
+            def.name = new_name;
+          }
+        }
+      }
+    }
+
+    for (_, mut def) in defs {
+      def.subst_refs(&name_map);
+      book.defs.insert(def.name.clone(), def);
+    }
+  }
+
+  Ok(book_name_map)
 }
 
 pub fn run_book(

@@ -121,6 +121,15 @@ impl<'a> TermParser<'a> {
         }
       }
 
+      // Import declaration
+      if self.try_parse_keyword("use") {
+        let import = self.parse_import()?;
+        book.imports.insert(import.clone());
+        indent = self.advance_newlines();
+        last_rule = None;
+        continue;
+      }
+
       // Fun function definition
       let ini_idx = *self.index();
       let (name, rule) = self.parse_rule()?;
@@ -143,7 +152,7 @@ impl<'a> TermParser<'a> {
         }
       } else {
         // Adding the first rule of a new definition
-        book.defs.insert(name.clone(), Definition { name: name.clone(), rules: vec![rule], builtin });
+        book.defs.insert(name.clone(), Definition::new(name.clone(), vec![rule], builtin));
       }
       indent = self.advance_newlines();
       last_rule = Some(name);
@@ -189,6 +198,17 @@ impl<'a> TermParser<'a> {
       let name = Name::new(format!("{typ_name}/{name}"));
       Ok((name, vec![]))
     }
+  }
+
+  fn parse_import(&mut self) -> Result<Name, String> {
+    // use package
+    let import = self.labelled(|p| p.parse_bend_name_import(), "package name")?;
+
+    if self.try_consume("{") {
+      todo!("syntax not implemented yet")
+    }
+
+    Ok(import)
   }
 
   fn parse_rule(&mut self) -> ParseResult<(Name, Rule)> {
@@ -835,6 +855,14 @@ pub trait ParserCommons<'a>: Parser<'a> {
     } else {
       Ok(name)
     }
+  }
+
+  /// Parses a name from the input, supporting alphanumeric characters, underscores, periods, hyphens, and at.
+  fn parse_bend_name_import(&mut self) -> Result<Name, String> {
+    self.skip_trivia();
+    let name = self
+      .take_while(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' || c == '/' || c == '@');
+    if name.is_empty() { self.expected("name") } else { Ok(Name::new(name)) }
   }
 
   fn parse_top_level_name(&mut self) -> ParseResult<Name> {
