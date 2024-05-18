@@ -205,7 +205,7 @@ impl<'a> TermParser<'a> {
     let import = self.labelled(|p| p.parse_bend_name_import(), "package name")?;
 
     if self.try_consume("{") {
-      let sub = self.list_like(|p| p.parse_bend_name(), "", "}", ",", false, 1)?;
+      let sub = self.list_like(|p| p.parse_bend_name(), "", "}", ",", false, 0)?;
       return Ok((import, sub));
     }
 
