@@ -863,7 +863,11 @@ pub trait ParserCommons<'a>: Parser<'a> {
     self.skip_trivia();
     let name = self
       .take_while(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' || c == '/' || c == '@');
-    if name.is_empty() { self.expected("name") } else { Ok(Name::new(name)) }
+    if name.is_empty() {
+      self.expected("name")
+    } else {
+      Ok(Name::new(name))
+    }
   }
 
   fn parse_top_level_name(&mut self) -> ParseResult<Name> {
