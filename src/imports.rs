@@ -41,7 +41,7 @@ impl Imports {
         self.pkgs.push((psrc, module));
       }
 
-      let (_, name) = src.split_once('/').unwrap();
+      let (_namespace, name) = src.split_once('/').unwrap();
 
       if let Entry::Vacant(v) = self.map.entry(Name::new(name)) {
         v.insert(src.clone());
@@ -60,6 +60,7 @@ impl Imports {
 
 impl Book {
   pub fn apply_imports(&mut self, diagnostics_cfg: DiagnosticsConfig) -> Result<(), Diagnostics> {
+    // TODO: Check for missing imports from local files
     for (src, package) in &mut self.imports.pkgs {
       package.apply_imports(diagnostics_cfg)?;
 
@@ -106,7 +107,7 @@ pub trait PackageLoader {
   /// Loads a package.
   /// Should only return `Ok(None)` if the package is already loaded
   fn load(&mut self, name: Name) -> Result<Option<(Name, String)>, String>;
-  fn load_multiple(&mut self, name: Name, sub_packages: &[Name]) -> Result<Vec<(Name, String)>, String>;
+  fn load_multiple(&mut self, name: Name, sub_names: &[Name]) -> Result<Vec<(Name, String)>, String>;
   fn is_loaded(&self, name: &Name) -> bool;
 }
 
@@ -126,30 +127,31 @@ impl<T: Fn(&str) -> Result<String, String>> PackageLoader for DefaultLoader<T> {
     }
   }
 
-  fn load_multiple(&mut self, name: Name, sub_packages: &[Name]) -> Result<Vec<(Name, String)>, String> {
+  fn load_multiple(&mut self, name: Name, sub_names: &[Name]) -> Result<Vec<(Name, String)>, String> {
     if name.contains('@') {
-      if sub_packages.is_empty() {
-        if let Some(p) = self.load(name)? {
-          return Ok(vec![p]);
-        }
-      } else {
-        let mut packages = Vec::new();
+      let mut packages = Vec::new();
 
-        for sub in sub_packages {
+      if !sub_names.is_empty() {
+        for sub in sub_names {
           if let Some(p) = self.load(Name::new(&(format!("{}/{}", name, sub))))? {
             packages.push(p);
           }
         }
-
-        if let Some(p) = self.load(name)? {
-          packages.push(p);
-        }
-
-        return Ok(packages);
       }
 
-      Ok(Vec::new())
+      if let Some(package) = self.load(name)? {
+        packages.push(package)
+      }
+
+      Ok(packages)
     } else if let Some(path) = &self.local_path {
+      // Loading local packages is different than non-local ones,
+      // sub_names refer to top level definitions on the imported file.
+      // This should match the behaviour of importing a uploaded version of the imported file,
+      // as each def will be saved separately.
+
+      // TODO: Should the local filesystem be searched anyway for each sub_name?
+
       let path = path.parent().unwrap().join(name.as_ref()).with_extension("bend");
       std::fs::read_to_string(path).map_err(|e| e.to_string()).map(|c| vec![(name, c)])
     } else {

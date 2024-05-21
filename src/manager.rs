@@ -80,18 +80,16 @@ fn store_cmd(
   namespace: String,
   version: String,
 ) -> Result<(), Diagnostics> {
-  let package_name = match name {
-    Some(name) => format!("{}/{}", namespace, name),
-    None => {
-      let path = path.clone().with_extension("");
-      let file_name = path.file_name();
-      let file_name = file_name.ok_or("Expected a file path to Store, found a directory".to_string())?;
-      format!("{}/{}", namespace, file_name.to_string_lossy())
-    }
-  };
+  let name = name.unwrap_or_else(|| {
+    let path = path.clone().with_extension("");
+    let file_name = path.file_name().unwrap();
+    file_name.to_string_lossy().to_string()
+  });
+
+  let package_name = format!("{}/{}", namespace, name);
 
   let pack = PackageDescriptor::new(Some(&version), &package_name);
-  let package = check(path)?;
+  let package = check(path, &name)?;
   store(pack, package)?;
 
   Ok(())
@@ -101,14 +99,16 @@ pub fn load_cmd(name: &str) -> Result<String, String> {
   load(&PackageDescriptor::from(name)).map(|Package(pack)| pack)
 }
 
-fn check(path: PathBuf) -> Result<Package, Diagnostics> {
+fn check(path: PathBuf, package_name: &str) -> Result<Package, Diagnostics> {
   let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
 
   let load_book = |mut path: std::path::PathBuf| -> Result<Book, Diagnostics> {
     let mut package_loader = DefaultLoader { local_path: None, loaded: HashSet::new(), load_fn: load_cmd };
     let mut book = load_to_book(path.display(), &source, &mut package_loader)?;
     path.set_extension("");
-    book.entrypoint = path.file_name().map(|e| Name::new(e.to_string_lossy()));
+
+    // TODO: entrypoint set to package name, is there a better alternative?
+    book.entrypoint = Some(Name::new(package_name));
     Ok(book)
   };
 
