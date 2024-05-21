@@ -1,5 +1,6 @@
 use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
+  imports::Imports,
   maybe_grow, multi_iterator, ENTRY_POINT,
 };
 use indexmap::{IndexMap, IndexSet};
@@ -49,20 +50,6 @@ pub struct Book {
 
   /// Imported packages to be loaded in the program
   pub imports: Imports,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Imports {
-  /// Imports declared in the program source
-  pub names: Vec<(Name, Vec<Name>)>,
-
-  /// Map from binded names to source package
-  pub map: HashMap<Name, Name>,
-
-  /// Imported packages to be loaded in the program
-  /// When loaded, the book contents are drained to the parent book,
-  /// adjusting def names and refs accordingly
-  pub pkgs: Vec<(Name, Book)>,
 }
 
 pub type Definitions = IndexMap<Name, Definition>;

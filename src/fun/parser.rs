@@ -123,8 +123,14 @@ impl<'a> TermParser<'a> {
 
       // Import declaration
       if self.try_parse_keyword("use") {
-        let (imports, sub_imports) = self.parse_import()?;
-        book.imports.names.push((imports, sub_imports));
+        let (import, sub_imports) = self.parse_import()?;
+
+        if let Err(name) = book.imports.add_import(import, sub_imports) {
+          let end_idx = *self.index();
+          let msg = format!("Import statement '{}' missing namespace", name);
+          return self.with_ctx(Err(msg), ini_idx, end_idx);
+        };
+
         indent = self.advance_newlines();
         last_rule = None;
         continue;

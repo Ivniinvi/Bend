@@ -1,10 +1,11 @@
 use bend::{
   diagnostics::Diagnostics,
   fun::{load_book::load_to_book, Book, Name},
+  imports::DefaultLoader,
 };
 use bpm::*;
 use clap::Subcommand;
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 
 use crate::CliWarnOpts;
 
@@ -100,15 +101,12 @@ pub fn load_cmd(name: &str) -> Result<String, String> {
   load(&PackageDescriptor::from(name)).map(|Package(pack)| pack)
 }
 
-pub fn load_multiple(name: &Name, sub_packages: &[Name]) -> Result<String, String> {
-  if sub_packages.is_empty() { load_cmd(name) } else { todo!() }
-}
-
 fn check(path: PathBuf) -> Result<Package, Diagnostics> {
   let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
 
   let load_book = |mut path: std::path::PathBuf| -> Result<Book, Diagnostics> {
-    let mut book = load_to_book(path.display(), &source, load_multiple)?;
+    let mut package_loader = DefaultLoader { local_path: None, loaded: HashSet::new(), load_fn: load_cmd };
+    let mut book = load_to_book(path.display(), &source, &mut package_loader)?;
     path.set_extension("");
     book.entrypoint = path.file_name().map(|e| Name::new(e.to_string_lossy()));
     Ok(book)

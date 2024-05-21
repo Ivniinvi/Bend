@@ -3,11 +3,12 @@ use bend::{
   diagnostics::{Diagnostics, DiagnosticsConfig, Severity},
   fun::{Book, Name},
   hvm::display_hvm_book,
+  imports::DefaultLoader,
   load_file_to_book, run_book, AdtEncoding, CompileOpts, OptLevel, RunOpts,
 };
 use clap::{Args, CommandFactory, Parser, Subcommand};
-use manager::load_multiple;
-use std::{path::PathBuf, process::ExitCode};
+use manager::load_cmd;
+use std::{collections::HashSet, path::PathBuf, process::ExitCode};
 
 mod manager;
 
@@ -377,16 +378,10 @@ fn execute_cli_mode(mut cli: Cli) -> Result<(), Diagnostics> {
 
 fn load_book(entrypoint: Option<String>, arg_verbose: bool) -> impl Fn(PathBuf) -> Result<Book, Diagnostics> {
   move |path: PathBuf| -> Result<Book, Diagnostics> {
-    let package_loader = |name: &Name, sub_packages: &[Name]| {
-      if name.contains('@') {
-        load_multiple(name, sub_packages)
-      } else {
-        let path = path.parent().unwrap().join(name.as_ref()).with_extension("bend");
-        std::fs::read_to_string(path).map_err(|e| e.to_string())
-      }
-    };
+    let mut package_loader =
+      DefaultLoader { local_path: Some(path.clone()), loaded: HashSet::new(), load_fn: load_cmd };
 
-    let mut book = load_file_to_book(&path, package_loader)?;
+    let mut book = load_file_to_book(&path, &mut package_loader)?;
     book.entrypoint = entrypoint.clone().map(Name::new);
 
     if arg_verbose {

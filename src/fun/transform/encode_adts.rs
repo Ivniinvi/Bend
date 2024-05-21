@@ -67,5 +67,5 @@ fn encode_ctr_num_scott<'a>(ctr_args: impl DoubleEndedIterator<Item = &'a Name> 
 
 fn make_tag_def(ctr_idx: usize, tag: &Name, adt: &crate::fun::Adt) -> Definition {
   let tag_rule = vec![Rule { pats: vec![], body: Term::Num { val: Num::U24(ctr_idx as u32) } }];
-  Definition::new(tag.clone(), tag_rule, adt.builtin)
+  Definition::new_gen(tag.clone(), tag_rule, adt.builtin)
 }
