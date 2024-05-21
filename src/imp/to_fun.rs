@@ -18,7 +18,7 @@ impl Definition {
     let rule =
       fun::Rule { pats: self.params.into_iter().map(|param| fun::Pattern::Var(Some(param))).collect(), body };
 
-    let def = fun::Definition::new(self.name, vec![rule], builtin);
+    let def = fun::Definition::new_gen(self.name, vec![rule], builtin);
     Ok(def)
   }
 }

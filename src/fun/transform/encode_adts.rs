@@ -25,7 +25,7 @@ impl Book {
         };
 
         let rules = vec![Rule { pats: vec![], body }];
-        let def = Definition::new(ctr_name.clone(), rules, adt.builtin);
+        let def = Definition::new_gen(ctr_name.clone(), rules, adt.builtin);
         defs.push((ctr_name.clone(), def));
       }
     }

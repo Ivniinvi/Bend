@@ -1,7 +1,7 @@
 use crate::{
   fun::{
-    display::DisplayFn, Adt, Book, CtrField, Definition, FanKind, MatchRule, Name, Num, Op, Pattern, Rule,
-    Tag, Term, STRINGS,
+    display::DisplayFn, Adt, Book, CtrField, DefType, Definition, FanKind, MatchRule, Name, Num, Op, Pattern,
+    Rule, Tag, Term, STRINGS,
   },
   imp::parser::PyParser,
   maybe_grow,
@@ -140,6 +140,9 @@ impl<'a> TermParser<'a> {
           if last_rule == name {
             // Continuing with a new rule to the current definition
             def.rules.push(rule);
+            if let DefType::Normal(_, end) = &mut def.def_type {
+              *end = end_idx;
+            }
           } else {
             // Trying to add a new rule to a previous definition, coming from a different rule.
             let msg = format!("Redefinition of function '{name}'");
@@ -152,7 +155,8 @@ impl<'a> TermParser<'a> {
         }
       } else {
         // Adding the first rule of a new definition
-        book.defs.insert(name.clone(), Definition::new(name.clone(), vec![rule], builtin));
+        let def_type = if builtin { DefType::Builtin } else { DefType::Normal(ini_idx, end_idx) };
+        book.defs.insert(name.clone(), Definition::new(name.clone(), vec![rule], def_type));
       }
       indent = self.advance_newlines();
       last_rule = Some(name);

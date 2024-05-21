@@ -11,7 +11,7 @@ use crate::{
   },
 };
 use diagnostics::{Diagnostics, DiagnosticsConfig, ERR_INDENT_SIZE};
-use fun::{Name, Visibility};
+use fun::{DefType, Name};
 use net::hvm_to_net::hvm_to_net;
 
 pub mod diagnostics;
@@ -169,19 +169,21 @@ fn apply_imports(book: &mut Book, diagnostics_cfg: DiagnosticsConfig) -> Result<
     let mut defs = std::mem::take(&mut package.defs);
 
     for def in defs.values_mut() {
-      match def.visibility {
-        Visibility::Normal if book.imports.map.contains_key(&def.name) => {
-          def.visibility = Visibility::Import;
+      match def.def_type {
+        DefType::Normal(..) if book.imports.map.contains_key(&def.name) => {
+          def.def_type = DefType::Import;
         }
-        Visibility::Inaccessible => {}
+        DefType::Builtin => {}
+        DefType::Generated => {}
+        DefType::Inaccessible => {}
         _ => {
-          def.visibility = Visibility::Inaccessible;
+          def.def_type = DefType::Inaccessible;
 
           // Mangle inaccessible definitions so that users cant call them
           let new_name = if let Some(n) = package.imports.map.get(&def.name) {
-            Name::new(format!("${}$", n))
+            Name::new(format!("__{}__", n))
           } else {
-            Name::new(format!("${}/{}$", src, def.name))
+            Name::new(format!("__{}/{}__", src, def.name))
           };
 
           package.imports.map.insert(def.name.clone(), new_name.clone());

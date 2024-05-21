@@ -113,7 +113,7 @@ impl Term {
         let body = Term::rfold_lams(body, with_bnd.iter().cloned());
         let body = Term::rfold_lams(body, free_vars.iter().map(|nam| Some(nam.clone())));
         let body = Term::lam(Pattern::Var(Some(x_nam)), body);
-        let def = Definition::new(new_nam.clone(), vec![Rule { pats: vec![], body }], false);
+        let def = Definition::new_gen(new_nam.clone(), vec![Rule { pats: vec![], body }], false);
         new_defs.push(def);
 
         // Call the new function

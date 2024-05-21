@@ -32,7 +32,7 @@ impl Ctx<'_> {
 
     // Get the functions that are accessible from non-builtins.
     for def in self.book.defs.values() {
-      if !def.builtin && !(used.get(&def.name) == Some(&Used::Main)) {
+      if !def.is_builtin() && !(used.get(&def.name) == Some(&Used::Main)) {
         if self.book.ctrs.contains_key(&def.name) {
           used.insert(def.name.clone(), Used::Ctr);
         } else {

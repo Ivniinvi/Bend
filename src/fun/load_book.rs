@@ -17,7 +17,7 @@ pub fn load_to_book<T: Display>(
   code: &str,
   package_loader: impl Fn(&Name, &[Name]) -> Result<String, String>,
 ) -> Result<Book, String> {
-  let builtins = Book::default();
+  let builtins = Book::builtins();
   let mut book = do_parse_book(code, origin, builtins)?;
 
   load_imports_to_book(&mut book, &package_loader)?;
