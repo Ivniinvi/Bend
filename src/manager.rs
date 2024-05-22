@@ -1,13 +1,11 @@
 use bend::{
   diagnostics::Diagnostics,
-  fun::{load_book::load_to_book, Book, Name},
-  imports::DefaultLoader,
+  fun::{load_book::load_to_book, Name},
+  imports::{check_book, DefaultLoader},
 };
 use bpm::*;
 use clap::Subcommand;
 use std::{collections::HashSet, path::PathBuf};
-
-use crate::CliWarnOpts;
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum PackageCmd {
@@ -101,18 +99,14 @@ pub fn load_cmd(name: &str) -> Result<String, String> {
 
 fn check(path: PathBuf, package_name: &str) -> Result<Package, Diagnostics> {
   let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+  let mut package_loader = DefaultLoader { local_path: None, loaded: HashSet::new(), load_fn: load_cmd };
+  let mut book = load_to_book(path.display(), &source, &mut package_loader)?;
 
-  let load_book = |mut path: std::path::PathBuf| -> Result<Book, Diagnostics> {
-    let mut package_loader = DefaultLoader { local_path: None, loaded: HashSet::new(), load_fn: load_cmd };
-    let mut book = load_to_book(path.display(), &source, &mut package_loader)?;
-    path.set_extension("");
+  // TODO: entrypoint set to package name, is there a better alternative?
+  book.entrypoint = Some(Name::new(package_name));
 
-    // TODO: entrypoint set to package name, is there a better alternative?
-    book.entrypoint = Some(Name::new(package_name));
-    Ok(book)
-  };
-
-  crate::check(CliWarnOpts::default(), Vec::new(), load_book, path)?;
+  let diagnostics = check_book(&mut book)?;
+  eprint!("{diagnostics}");
 
   Ok(Package(source))
 }

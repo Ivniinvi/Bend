@@ -280,7 +280,15 @@ fn execute_cli_mode(mut cli: Cli) -> Result<(), Diagnostics> {
   };
 
   match cli.mode {
-    Mode::Check { comp_opts, warn_opts, path } => check(warn_opts, comp_opts, load_book, path)?,
+    Mode::Check { comp_opts, warn_opts, path } => {
+      let diagnostics_cfg = set_warning_cfg_from_cli(DiagnosticsConfig::default(), warn_opts);
+      let opts = compile_opts_from_cli(&comp_opts);
+
+      let mut book = load_book(path)?;
+      let diagnostics = check_book(&mut book, diagnostics_cfg, opts)?;
+
+      eprint!("{diagnostics}");
+    }
 
     Mode::GenHvm(GenArgs { comp_opts, warn_opts, path, .. }) => {
       let diagnostics_cfg = set_warning_cfg_from_cli(DiagnosticsConfig::default(), warn_opts);
@@ -390,21 +398,6 @@ fn load_book(entrypoint: Option<String>, arg_verbose: bool) -> impl Fn(PathBuf) 
 
     Ok(book)
   }
-}
-
-pub fn check(
-  warn_opts: CliWarnOpts,
-  comp_opts: Vec<OptArgs>,
-  load_book: impl FnOnce(PathBuf) -> Result<Book, Diagnostics>,
-  path: PathBuf,
-) -> Result<(), Diagnostics> {
-  let diagnostics_cfg = set_warning_cfg_from_cli(DiagnosticsConfig::default(), warn_opts);
-  let compile_opts = compile_opts_from_cli(&comp_opts);
-
-  let mut book = load_book(path)?;
-  let diagnostics = check_book(&mut book, diagnostics_cfg, compile_opts)?;
-  eprintln!("{}", diagnostics);
-  Ok(())
 }
 
 fn set_warning_cfg_from_cli(mut cfg: DiagnosticsConfig, warn_opts: CliWarnOpts) -> DiagnosticsConfig {

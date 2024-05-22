@@ -166,3 +166,13 @@ impl<T: Fn(&str) -> Result<String, String>> PackageLoader for DefaultLoader<T> {
     self.loaded.contains(name)
   }
 }
+
+#[allow(clippy::field_reassign_with_default)]
+/// Check book without warnings about unused definitions
+pub fn check_book(book: &mut Book) -> Result<Diagnostics, Diagnostics> {
+  let mut diagnostics_cfg = DiagnosticsConfig::default();
+  diagnostics_cfg.unused_definition = crate::diagnostics::Severity::Allow;
+  let compile_opts = crate::CompileOpts::default();
+
+  crate::check_book(book, diagnostics_cfg, compile_opts)
+}
