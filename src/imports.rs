@@ -1,6 +1,6 @@
 use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
-  fun::{load_book::do_parse_book, Book, Ctx, DefType, Name},
+  fun::{load_book::do_parse_book, Book, Ctx, Name, Source},
 };
 use std::{
   collections::{hash_map::Entry, HashMap, HashSet},
@@ -61,6 +61,7 @@ impl Imports {
 impl Book {
   pub fn apply_imports(&mut self, diagnostics_cfg: DiagnosticsConfig) -> Result<(), Diagnostics> {
     // TODO: Check for missing imports from local files
+    // TODO: handle adts and ctrs
     for (src, package) in &mut self.imports.pkgs {
       package.apply_imports(diagnostics_cfg)?;
 
@@ -70,15 +71,15 @@ impl Book {
       let mut defs = std::mem::take(&mut package.defs);
 
       for def in defs.values_mut() {
-        match def.def_type {
-          DefType::Normal(..) if self.imports.map.contains_key(&def.name) => {
-            def.def_type = DefType::Import;
+        match def.source {
+          Source::Normal(..) if self.imports.map.contains_key(&def.name) => {
+            def.source = Source::Imported;
           }
-          DefType::Builtin => {}
-          DefType::Generated => {}
-          DefType::Inaccessible => {}
+          Source::Builtin => {}
+          Source::Generated => {}
+          Source::Inaccessible => {}
           _ => {
-            def.def_type = DefType::Inaccessible;
+            def.source = Source::Inaccessible;
 
             // Mangle inaccessible definitions so that users cant call them
             let new_name = if let Some(n) = package.imports.map.get(&def.name) {

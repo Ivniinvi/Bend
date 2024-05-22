@@ -2,11 +2,11 @@ use super::{AssignPattern, Definition, Expr, InPlaceOp, Stmt};
 use crate::fun::{
   self,
   builtins::{LCONS, LNIL},
-  Name,
+  Name, Source,
 };
 
 impl Definition {
-  pub fn to_fun(self, builtin: bool) -> Result<fun::Definition, String> {
+  pub fn to_fun(self, source: Source) -> Result<fun::Definition, String> {
     let body = self.body.into_fun().map_err(|e| format!("In function '{}': {}", self.name, e))?;
     let body = match body {
       StmtToFun::Return(term) => term,
@@ -18,7 +18,7 @@ impl Definition {
     let rule =
       fun::Rule { pats: self.params.into_iter().map(|param| fun::Pattern::Var(Some(param))).collect(), body };
 
-    let def = fun::Definition::new_gen(self.name, vec![rule], builtin);
+    let def = fun::Definition::new(self.name, vec![rule], source);
     Ok(def)
   }
 }
