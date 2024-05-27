@@ -1,7 +1,8 @@
 use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
-  fun::{load_book::do_parse_book, Book, Ctx, Name, Source},
+  fun::{load_book::do_parse_book, Book, Name, Source},
 };
+use itertools::Itertools;
 use std::{
   collections::{hash_map::Entry, HashMap, HashSet},
   path::PathBuf,
@@ -45,15 +46,17 @@ impl Imports {
         self.pkgs.push((psrc, module));
       }
 
-      let (_namespace, name) = src.split_once('/').unwrap();
+      if sub_imports.is_empty() {
+        let (_namespace, name) = src.split_once('/').unwrap();
 
-      if let Entry::Vacant(v) = self.map.entry(Name::new(name)) {
-        v.insert(src.clone());
-      }
-
-      for sub in sub_imports {
-        if let Entry::Vacant(v) = self.map.entry(sub.clone()) {
-          v.insert(Name::new(format!("{}/{}", src, sub)));
+        if let Entry::Vacant(v) = self.map.entry(Name::new(name)) {
+          v.insert(Name::new(format!("{}/{}", src, name)));
+        }
+      } else {
+        for sub in sub_imports {
+          if let Entry::Vacant(v) = self.map.entry(sub.clone()) {
+            v.insert(Name::new(format!("{}/{}", src, sub)));
+          }
         }
       }
     }
@@ -63,44 +66,60 @@ impl Imports {
 }
 
 impl Book {
-  pub fn apply_imports(&mut self, diagnostics_cfg: DiagnosticsConfig) -> Result<(), Diagnostics> {
+  pub fn apply_imports(&mut self, main_imports: Option<&HashMap<Name, Name>>) -> Result<(), Diagnostics> {
+    let main_imports = main_imports.unwrap_or(&self.imports.map);
+
     // TODO: Check for missing imports from local files
     // TODO: handle adts and ctrs
     for (src, package) in &mut self.imports.pkgs {
-      package.apply_imports(diagnostics_cfg)?;
-
-      let mut ctx = Ctx::new(package, diagnostics_cfg);
-      ctx.resolve_refs()?; // TODO: does not work for adts
+      package.apply_imports(Some(main_imports))?;
 
       let mut defs = std::mem::take(&mut package.defs);
+      let mut map = HashMap::new();
 
       for def in defs.values_mut() {
+        println!("{:?}: {}", def.source, def.name);
         match def.source {
-          Source::Normal(..) if self.imports.map.contains_key(&def.name) => {
+          Source::Normal(..) => {
             def.source = Source::Imported;
+            let mut new_name = Name::new(format!("{}/{}", src, def.name));
+
+            if !main_imports.values().contains(&new_name) {
+              new_name = Name::new(format!("__{}__", new_name));
+            }
+
+            map.insert(def.name.clone(), new_name.clone());
+            def.name = new_name;
           }
           Source::Builtin => {}
           Source::Generated => {}
           Source::Inaccessible => {}
-          _ => {
-            def.source = Source::Inaccessible;
-
-            // Mangle inaccessible definitions so that users cant call them
-            let new_name = if let Some(n) = package.imports.map.get(&def.name) {
-              Name::new(format!("__{}__", n))
-            } else {
-              Name::new(format!("__{}/{}__", src, def.name))
-            };
-
-            package.imports.map.insert(def.name.clone(), new_name.clone());
-            def.name = new_name;
-          }
+          Source::Imported => {}
         }
       }
 
-      for (_, mut def) in defs {
-        def.subst_refs(&package.imports.map);
+      for (_, def) in defs {
         self.defs.insert(def.name.clone(), def);
+      }
+    }
+
+    let map: HashMap<&Name, Name> = self
+      .imports
+      .map
+      .iter()
+      .map(|(bind, src)| {
+        let nam =
+          if main_imports.values().contains(&src) { src.clone() } else { Name::new(format!("__{}__", src)) };
+        (bind, nam)
+      })
+      .collect();
+
+    for def in self.defs.values_mut() {
+      for rule in &mut def.rules {
+        for (bind, nam) in &map {
+          // TODO: Needs subst fix to work without `with` linearization
+          rule.body.subst(bind, &crate::fun::Term::Var { nam: nam.clone() })
+        }
       }
     }
 
@@ -136,16 +155,16 @@ impl<T: Fn(&str) -> Result<String, String>> PackageLoader for DefaultLoader<T> {
     if name.contains('@') {
       let mut packages = Vec::new();
 
-      if !sub_names.is_empty() {
+      if sub_names.is_empty() {
+        if let Some(package) = self.load(name)? {
+          packages.push(package)
+        }
+      } else {
         for sub in sub_names {
           if let Some(p) = self.load(Name::new(&(format!("{}/{}", name, sub))))? {
             packages.push(p);
           }
         }
-      }
-
-      if let Some(package) = self.load(name)? {
-        packages.push(package)
       }
 
       Ok(packages)
@@ -155,10 +174,14 @@ impl<T: Fn(&str) -> Result<String, String>> PackageLoader for DefaultLoader<T> {
       // This should match the behaviour of importing a uploaded version of the imported file,
       // as each def will be saved separately.
 
-      // TODO: Should the local filesystem be searched anyway for each sub_name?
-
-      let path = path.parent().unwrap().join(name.as_ref()).with_extension("bend");
-      std::fs::read_to_string(path).map_err(|e| e.to_string()).map(|c| vec![(name, c)])
+      if !self.is_loaded(&name) {
+        // TODO: Should the local filesystem be searched anyway for each sub_name?
+        self.loaded.insert(name.clone());
+        let path = path.parent().unwrap().join(name.as_ref()).with_extension("bend");
+        std::fs::read_to_string(path).map_err(|e| e.to_string()).map(|c| vec![(name, c)])
+      } else {
+        Ok(Vec::new())
+      }
     } else {
       Err(format!(
         "Can not import local '{}'. Use 'version@{}' if you wish to import a online package.",

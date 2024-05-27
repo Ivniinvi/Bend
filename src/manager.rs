@@ -99,8 +99,8 @@ pub fn load_cmd(name: &str) -> Result<String, String> {
 
 fn check(path: PathBuf, package_name: &str) -> Result<Package, Diagnostics> {
   let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-  let mut package_loader = DefaultLoader { local_path: None, loaded: HashSet::new(), load_fn: load_cmd };
-  let mut book = load_to_book(path.display(), &source, &mut package_loader)?;
+  let package_loader = DefaultLoader { local_path: None, loaded: HashSet::new(), load_fn: load_cmd };
+  let mut book = load_to_book(path.display(), &source, package_loader)?;
 
   // TODO: entrypoint set to package name, is there a better alternative?
   book.entrypoint = Some(Name::new(package_name));

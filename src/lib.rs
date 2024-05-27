@@ -85,8 +85,6 @@ pub fn desugar_book(
   diagnostics_cfg: DiagnosticsConfig,
   args: Option<Vec<Term>>,
 ) -> Result<Diagnostics, Diagnostics> {
-  book.apply_imports(diagnostics_cfg)?;
-
   let mut ctx = Ctx::new(book, diagnostics_cfg);
 
   ctx.check_shared_names();
@@ -96,6 +94,8 @@ pub fn desugar_book(
   ctx.book.encode_adts(opts.adt_encoding);
 
   ctx.fix_match_defs()?;
+
+  ctx.book.apply_imports(None)?;
 
   ctx.apply_args(args)?;
 

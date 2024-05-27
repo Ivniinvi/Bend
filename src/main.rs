@@ -386,10 +386,10 @@ fn execute_cli_mode(mut cli: Cli) -> Result<(), Diagnostics> {
 
 fn load_book(entrypoint: Option<String>, arg_verbose: bool) -> impl Fn(PathBuf) -> Result<Book, Diagnostics> {
   move |path: PathBuf| -> Result<Book, Diagnostics> {
-    let mut package_loader =
+    let package_loader =
       DefaultLoader { local_path: Some(path.clone()), loaded: HashSet::new(), load_fn: load_cmd };
 
-    let mut book = load_file_to_book(&path, &mut package_loader)?;
+    let mut book = load_file_to_book(&path, package_loader)?;
     book.entrypoint = entrypoint.clone().map(Name::new);
 
     if arg_verbose {

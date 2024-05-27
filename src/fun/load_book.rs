@@ -5,7 +5,7 @@ use std::{fmt::Display, path::Path};
 // TODO: Refactor so that we don't mix the two syntaxes here.
 
 /// Reads a file and parses to a definition book.
-pub fn load_file_to_book(path: &Path, package_loader: &mut impl PackageLoader) -> Result<Book, String> {
+pub fn load_file_to_book(path: &Path, package_loader: impl PackageLoader) -> Result<Book, String> {
   let code = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
   load_to_book(path.display(), &code, package_loader)
 }
@@ -13,11 +13,11 @@ pub fn load_file_to_book(path: &Path, package_loader: &mut impl PackageLoader) -
 pub fn load_to_book<T: Display>(
   origin: T,
   code: &str,
-  package_loader: &mut impl PackageLoader,
+  mut package_loader: impl PackageLoader,
 ) -> Result<Book, String> {
   let builtins = Book::default(); // TODO: revert back before merging
   let mut book = do_parse_book(code, origin, builtins)?;
-  book.imports.load_imports(package_loader)?;
+  book.imports.load_imports(&mut package_loader)?;
   Ok(book)
 }
 
