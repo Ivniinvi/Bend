@@ -78,7 +78,6 @@ impl Book {
       let mut map = HashMap::new();
 
       for def in defs.values_mut() {
-        println!("{:?}: {}", def.source, def.name);
         match def.source {
           Source::Normal(..) => {
             def.source = Source::Imported;

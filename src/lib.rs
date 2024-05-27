@@ -1,3 +1,4 @@
+#![allow(clippy::mutable_key_type)]
 use crate::{
   fun::{book_to_hvm, net_to_term::net_to_term, term_to_net::Labels, Book, Ctx, Term},
   hvm::{
