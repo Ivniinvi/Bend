@@ -53,8 +53,8 @@ pub enum PackageCmd {
 pub fn handle_package_cmd(command: PackageCmd) -> Result<(), Diagnostics> {
   match command {
     PackageCmd::CanPost { name } => match can_post(&PackageDescriptor::from(name.as_str())) {
-      Ok(true) => println!("The package {name} can be uploaded"),
-      Ok(false) => println!("The package {name} can NOT be uploaded"),
+      Ok(true) => println!("The package `{name}` can be uploaded"),
+      Ok(false) => println!("The package `{name}` can NOT be uploaded"),
       err @ Err(_) => _ = err?,
     },
 

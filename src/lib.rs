@@ -87,7 +87,7 @@ pub fn desugar_book(
   args: Option<Vec<Term>>,
 ) -> Result<Diagnostics, Diagnostics> {
   book.apply_imports()?;
-  
+
   let mut ctx = Ctx::new(book, diagnostics_cfg);
 
   ctx.check_shared_names();

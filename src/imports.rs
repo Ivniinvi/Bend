@@ -1,6 +1,6 @@
 use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
-  fun::{load_book::do_parse_book, Book, Name, Source, Term},
+  fun::{load_book::do_parse_book, Adt, Book, Definition, Name, Source, Term},
 };
 use indexmap::map::Entry;
 use indexmap::IndexMap;
@@ -17,7 +17,7 @@ pub struct Imports {
 
   /// Imported packages to be loaded in the program.
   /// When loaded, the book contents are drained to the parent book,
-  /// adjusting def names and refs accordingly.
+  /// adjusting def names accordingly.
   pkgs: Vec<(Name, Book)>,
 }
 
@@ -70,73 +70,174 @@ impl Book {
   }
 
   fn apply_imports_go(&mut self, main_imports: Option<&IndexMap<Name, Name>>) -> Result<(), Diagnostics> {
-    // Can not be done on the outer function because of the borrow checker.
-    // Just serves to pass only the import map of the first call to this function.
-    let main_imports = main_imports.unwrap_or(&self.imports.map);
+    self.load_packages(main_imports)?;
+    self.apply_import_binds(main_imports);
+    Ok(())
+  }
 
-    // Local imports binds surrounded by `__` if not imported by the main book.
-    let local_imports: IndexMap<Name, Name> = self
-      .imports
-      .map
-      .iter()
-      .rev()
-      .map(|(bind, src)| {
-        let nam =
-          if main_imports.values().contains(&src) { src.clone() } else { Name::new(format!("__{}__", src)) };
-        (bind.clone(), nam)
-      })
-      .collect();
+  /// Consumes the book imported packages,
+  /// applying the imports recursively of every nested book.
+  fn load_packages(&mut self, main_imports: Option<&IndexMap<Name, Name>>) -> Result<(), Diagnostics> {
+    let mut pkgs = std::mem::take(&mut self.imports.pkgs);
 
-    // Applies a chain of `use bind = src; nxt` to every normal definition
-    // To be able to access the imported definitions.
-    for def in self.defs.values_mut().filter(|d| matches!(d.source, Source::Normal(..))) {
-      for rule in &mut def.rules {
-        rule.body = fold_uses(std::mem::take(&mut rule.body), local_imports.iter());
-      }
-    }
+    for (src, package) in &mut pkgs {
+      // Can not be done outside the loop/function because of the borrow checker.
+      // Just serves to pass only the import map of the first call to `apply_imports_go`.
+      let main_imports = main_imports.unwrap_or(&self.imports.map);
 
-    // TODO: Check for missing imports from local files
-    // TODO: handle adts and ctrs
-    for (src, package) in &mut self.imports.pkgs {
       package.apply_imports_go(Some(main_imports))?;
+      let new_adts = package.apply_adts(src, main_imports);
+      let new_defs = package.apply_defs(src, main_imports);
 
-      let mut defs = std::mem::take(&mut package.defs);
-      let mut map: IndexMap<_, _> = IndexMap::new();
-
-      // Rename the definitions to their source name
-      // Surrounded with `__` if not imported by the main book.
-      for def in defs.values_mut() {
-        if let Source::Normal(..) = def.source {
-          let mut new_name = Name::new(format!("{}/{}", src, def.name));
-
-          if !main_imports.values().contains(&new_name) {
-            new_name = Name::new(format!("__{}__", new_name));
-          }
-
-          map.insert(def.name.clone(), new_name.clone());
-          def.name = new_name;
-        }
+      for (name, adt) in new_adts {
+        self.add_adt(name, adt).expect("Package src should be unique, impossible to have name conflicts");
       }
 
-      for (nam, mut def) in defs {
-        // Applies a chain of `use bind = src; nxt` to every normal definition
-        // To be able to access the definitions of its own book.
-        if let Source::Normal(..) = def.source {
-          for rule in &mut def.rules {
-            rule.body =
-              fold_uses(std::mem::take(&mut rule.body), map.iter().rev().filter(|(n, _)| *n != &nam));
-          }
-          def.source = Source::Imported;
+      for def in new_defs.into_values() {
+        if self.defs.contains_key(&def.name) || self.ctrs.contains_key(&def.name) {
+          unreachable!("Package src should be unique, impossible to have name conflicts");
         }
 
-        match self.defs.entry(def.name.clone()) {
-          Entry::Occupied(_) => todo!(), // TODO: Conflict of names between imported and local def
-          Entry::Vacant(e) => _ = e.insert(def),
-        }
+        self.defs.insert(def.name.clone(), def);
       }
     }
 
     Ok(())
+  }
+
+  /// Applies a chain of `use bind = src` to every local definition.
+  ///
+  /// Must be used before `load_packages`
+  fn apply_import_binds(&mut self, main_imports: Option<&IndexMap<Name, Name>>) {
+    // Can not be done outside the function because of the borrow checker.
+    // Just serves to pass only the import map of the first call to `apply_imports_go`.
+    let main_imports = main_imports.unwrap_or(&self.imports.map);
+
+    let mut local_imports: IndexMap<Name, Name> = IndexMap::new();
+
+    // Collect local imports binds surrounded by `__` if not imported by the main book.
+    for (bind, src) in self.imports.map.iter().rev() {
+      let nam =
+        if main_imports.values().contains(&src) { src.clone() } else { Name::new(format!("__{}__", src)) };
+
+      if let Some(adt) = &self.adts.get(&nam) {
+        for (ctr, _) in adt.ctrs.iter().rev() {
+          let src = ctr.rsplit("__").nth(1).unwrap_or(ctr.as_ref());
+          let nam = nam.rsplit("__").nth(1).unwrap_or(nam.as_ref());
+
+          if let Some(a) = src.strip_prefix(nam) {
+            let bind = Name::new(format!("{}{}", bind, a));
+            local_imports.insert(bind, ctr.clone());
+          }
+        }
+      } else {
+        local_imports.insert(bind.clone(), nam);
+      }
+    }
+
+    for def in self.defs.values_mut().filter(|d| matches!(d.source, Source::Local(..))) {
+      for rule in &mut def.rules {
+        rule.body = fold_uses(std::mem::take(&mut rule.body), local_imports.iter());
+      }
+    }
+  }
+
+  /// Consumes the book adts, applying the necessary naming transformations
+  /// and adding `use ctr = ctr_src` chains to every local definition.
+  ///
+  /// Must be used before `apply_defs`
+  fn apply_adts(&mut self, src: &mut Name, main_imp: &IndexMap<Name, Name>) -> IndexMap<Name, Adt> {
+    let adts = std::mem::take(&mut self.adts);
+    let mut new_adts = IndexMap::new();
+    let mut ctrs_map = IndexMap::new();
+
+    for (mut name, mut adt) in adts {
+      match adt.source {
+        Source::Local(..) => {
+          adt.source = Source::Imported;
+          name = Name::new(format!("{}/{}", src, name));
+
+          let mangle_name = !main_imp.values().contains(&name);
+          let mut mangle_adt_name = mangle_name;
+
+          for (ctr, f) in std::mem::take(&mut adt.ctrs) {
+            let mut ctr_name = Name::new(format!("{}/{}", src, ctr));
+
+            let mangle_ctr = mangle_name && !main_imp.values().contains(&ctr_name);
+
+            if mangle_ctr {
+              mangle_adt_name = true;
+              ctr_name = Name::new(format!("__{}__", ctr_name));
+            }
+
+            ctrs_map.insert(ctr, ctr_name.clone());
+            adt.ctrs.insert(ctr_name, f);
+          }
+
+          if mangle_adt_name {
+            name = Name::new(format!("__{}__", name));
+          }
+        }
+
+        Source::Imported => {}
+
+        Source::Builtin | Source::Generated => {
+          unreachable!("No builtin or generated adt should be present at this step")
+        }
+      }
+
+      new_adts.insert(name.clone(), adt);
+    }
+
+    for def in self.defs.values_mut().filter(|d| matches!(d.source, Source::Local(..))) {
+      for rule in &mut def.rules {
+        rule.body = fold_uses(std::mem::take(&mut rule.body), ctrs_map.iter().rev());
+      }
+    }
+
+    new_adts
+  }
+
+  /// Consumes the book definitions, applying the necessary naming transformations
+  /// and adding `use def = def_src` chains to every local definition.
+  fn apply_defs(&mut self, src: &mut Name, main_imp: &IndexMap<Name, Name>) -> IndexMap<Name, Definition> {
+    let mut defs = std::mem::take(&mut self.defs);
+    let mut def_map: IndexMap<_, _> = IndexMap::new();
+
+    // Rename the definitions to their source name
+    // Surrounded with `__` if not imported by the main book.
+    for def in defs.values_mut() {
+      match def.source {
+        Source::Local(..) => {
+          let mut new_name = Name::new(format!("{}/{}", src, def.name));
+
+          if !main_imp.values().contains(&new_name) {
+            new_name = Name::new(format!("__{}__", new_name));
+          }
+
+          def_map.insert(def.name.clone(), new_name.clone());
+          def.name = new_name;
+        }
+
+        Source::Imported => {}
+
+        Source::Builtin | Source::Generated => {
+          unreachable!("No builtin or generated definition should be present at this step")
+        }
+      }
+    }
+
+    for (nam, def) in &mut defs {
+      if let Source::Local(..) = def.source {
+        for rule in &mut def.rules {
+          rule.body =
+            fold_uses(std::mem::take(&mut rule.body), def_map.iter().rev().filter(|(n, _)| n != &nam));
+        }
+        def.source = Source::Imported;
+      }
+    }
+
+    defs
   }
 }
 

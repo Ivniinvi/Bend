@@ -1058,7 +1058,7 @@ impl<'a> PyParser<'a> {
     def.order_kwargs(book)?;
     def.gen_map_get();
 
-    let source = if builtin { Source::Builtin } else { Source::Normal(ini_idx, end_idx) };
+    let source = if builtin { Source::Builtin } else { Source::Local(ini_idx, end_idx) };
     let def = def.to_fun(source)?;
     book.defs.insert(def.name.clone(), def);
     Ok(())
@@ -1076,7 +1076,7 @@ impl<'a> PyParser<'a> {
       let msg = format!("Redefinition of type '{}'.", r#enum.name);
       return self.with_ctx(Err(msg), ini_idx, end_idx);
     }
-    let source = if builtin { Source::Builtin } else { Source::Normal(ini_idx, end_idx) };
+    let source = if builtin { Source::Builtin } else { Source::Local(ini_idx, end_idx) };
     let mut adt = Adt { ctrs: Default::default(), source };
     for variant in r#enum.variants {
       if book.defs.contains_key(&variant.name) {
@@ -1106,7 +1106,7 @@ impl<'a> PyParser<'a> {
       let msg = format!("Redefinition of type '{}'.", obj.name);
       return self.with_ctx(Err(msg), ini_idx, end_idx);
     }
-    let source = if builtin { Source::Builtin } else { Source::Normal(ini_idx, end_idx) };
+    let source = if builtin { Source::Builtin } else { Source::Local(ini_idx, end_idx) };
     let mut adt = Adt { ctrs: Default::default(), source };
     if book.defs.contains_key(&obj.name) {
       let msg = format!("Redefinition of function '{}'.", obj.name);
