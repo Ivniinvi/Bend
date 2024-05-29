@@ -762,20 +762,6 @@ impl Term {
     }
   }
 
-  pub fn subst_refs(&mut self, map: &HashMap<Name, Name>) {
-    maybe_grow(|| {
-      for child in self.children_mut() {
-        child.subst_refs(map);
-      }
-    });
-
-    if let Term::Ref { nam } = self {
-      if let Some(to) = map.get(nam) {
-        *nam = to.clone();
-      }
-    }
-  }
-
   /// Collects all the free variables that a term has
   /// and the number of times each var is used
   pub fn free_vars(&self) -> HashMap<Name, u64> {
@@ -993,12 +979,6 @@ impl Definition {
 
   pub fn is_builtin(&self) -> bool {
     self.source.is_builtin()
-  }
-
-  pub fn subst_refs(&mut self, map: &HashMap<Name, Name>) {
-    for r in &mut self.rules {
-      r.body.subst_refs(map);
-    }
   }
 
   pub fn arity(&self) -> usize {

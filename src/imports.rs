@@ -1,12 +1,11 @@
 use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
-  fun::{load_book::do_parse_book, Book, Name, Source},
+  fun::{load_book::do_parse_book, Book, Name, Source, Term},
 };
+use indexmap::map::Entry;
+use indexmap::IndexMap;
 use itertools::Itertools;
-use std::{
-  collections::{hash_map::Entry, HashMap, HashSet},
-  path::PathBuf,
-};
+use std::{collections::HashSet, path::PathBuf};
 
 #[derive(Debug, Clone, Default)]
 pub struct Imports {
@@ -14,7 +13,7 @@ pub struct Imports {
   names: Vec<(Name, Vec<Name>)>,
 
   /// Map from binded names to source package.
-  map: HashMap<Name, Name>,
+  map: IndexMap<Name, Name>,
 
   /// Imported packages to be loaded in the program.
   /// When loaded, the book contents are drained to the parent book,
@@ -66,64 +65,87 @@ impl Imports {
 }
 
 impl Book {
-  pub fn apply_imports(&mut self, main_imports: Option<&HashMap<Name, Name>>) -> Result<(), Diagnostics> {
+  pub fn apply_imports(&mut self) -> Result<(), Diagnostics> {
+    self.apply_imports_go(None)
+  }
+
+  fn apply_imports_go(&mut self, main_imports: Option<&IndexMap<Name, Name>>) -> Result<(), Diagnostics> {
+    // Can not be done on the outer function because of the borrow checker.
+    // Just serves to pass only the import map of the first call to this function.
     let main_imports = main_imports.unwrap_or(&self.imports.map);
+
+    // Local imports binds surrounded by `__` if not imported by the main book.
+    let local_imports: IndexMap<Name, Name> = self
+      .imports
+      .map
+      .iter()
+      .rev()
+      .map(|(bind, src)| {
+        let nam =
+          if main_imports.values().contains(&src) { src.clone() } else { Name::new(format!("__{}__", src)) };
+        (bind.clone(), nam)
+      })
+      .collect();
+
+    // Applies a chain of `use bind = src; nxt` to every normal definition
+    // To be able to access the imported definitions.
+    for def in self.defs.values_mut().filter(|d| matches!(d.source, Source::Normal(..))) {
+      for rule in &mut def.rules {
+        rule.body = fold_uses(std::mem::take(&mut rule.body), local_imports.iter());
+      }
+    }
 
     // TODO: Check for missing imports from local files
     // TODO: handle adts and ctrs
     for (src, package) in &mut self.imports.pkgs {
-      package.apply_imports(Some(main_imports))?;
+      package.apply_imports_go(Some(main_imports))?;
 
       let mut defs = std::mem::take(&mut package.defs);
-      let mut map = HashMap::new();
+      let mut map: IndexMap<_, _> = IndexMap::new();
 
+      // Rename the definitions to their source name
+      // Surrounded with `__` if not imported by the main book.
       for def in defs.values_mut() {
-        match def.source {
-          Source::Normal(..) => {
-            def.source = Source::Imported;
-            let mut new_name = Name::new(format!("{}/{}", src, def.name));
+        if let Source::Normal(..) = def.source {
+          let mut new_name = Name::new(format!("{}/{}", src, def.name));
 
-            if !main_imports.values().contains(&new_name) {
-              new_name = Name::new(format!("__{}__", new_name));
-            }
-
-            map.insert(def.name.clone(), new_name.clone());
-            def.name = new_name;
+          if !main_imports.values().contains(&new_name) {
+            new_name = Name::new(format!("__{}__", new_name));
           }
-          Source::Builtin => {}
-          Source::Generated => {}
-          Source::Inaccessible => {}
-          Source::Imported => {}
+
+          map.insert(def.name.clone(), new_name.clone());
+          def.name = new_name;
         }
       }
 
-      for (_, def) in defs {
-        self.defs.insert(def.name.clone(), def);
-      }
-    }
+      for (nam, mut def) in defs {
+        // Applies a chain of `use bind = src; nxt` to every normal definition
+        // To be able to access the definitions of its own book.
+        if let Source::Normal(..) = def.source {
+          for rule in &mut def.rules {
+            rule.body =
+              fold_uses(std::mem::take(&mut rule.body), map.iter().rev().filter(|(n, _)| *n != &nam));
+          }
+          def.source = Source::Imported;
+        }
 
-    let map: HashMap<&Name, Name> = self
-      .imports
-      .map
-      .iter()
-      .map(|(bind, src)| {
-        let nam =
-          if main_imports.values().contains(&src) { src.clone() } else { Name::new(format!("__{}__", src)) };
-        (bind, nam)
-      })
-      .collect();
-
-    for def in self.defs.values_mut() {
-      for rule in &mut def.rules {
-        for (bind, nam) in &map {
-          // TODO: Needs subst fix to work without `with` linearization
-          rule.body.subst(bind, &crate::fun::Term::Var { nam: nam.clone() })
+        match self.defs.entry(def.name.clone()) {
+          Entry::Occupied(_) => todo!(), // TODO: Conflict of names between imported and local def
+          Entry::Vacant(e) => _ = e.insert(def),
         }
       }
     }
 
     Ok(())
   }
+}
+
+fn fold_uses<'a>(bod: Term, map: impl Iterator<Item = (&'a Name, &'a Name)>) -> Term {
+  map.fold(bod, |acc, (bind, nam)| Term::Use {
+    nam: Some(bind.clone()),
+    val: Box::new(Term::Var { nam: nam.clone() }),
+    nxt: Box::new(acc),
+  })
 }
 
 pub trait PackageLoader {
