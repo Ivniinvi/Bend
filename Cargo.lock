@@ -89,7 +89,7 @@ dependencies = [
 [[package]]
 name = "bpm"
 version = "0.1.0"
-source = "git+https://github.com/LunaAmora/Bend-Package-Manager#c89406726e06cf1a5487f3848917437b583d849f"
+source = "git+ssh://git@github.com/HigherOrderCO/Bend-Package-Manager.git#d8d65102bb1a945e2107c4be618e1a2ddfa529c6"
 dependencies = [
  "base64",
  "serde",
