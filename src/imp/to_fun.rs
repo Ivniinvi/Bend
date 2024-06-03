@@ -2,8 +2,27 @@ use super::{AssignPattern, Definition, Expr, InPlaceOp, Stmt};
 use crate::fun::{
   self,
   builtins::{LCONS, LNIL},
-  Name, Source,
+  parser::ParseBook,
+  Book, Name, Source,
 };
+
+impl ParseBook {
+  pub fn to_fun(mut self) -> Result<Book, String> {
+    for (name, (mut def, source)) in std::mem::take(&mut self.imp_defs) {
+      def.order_kwargs(&self)?;
+      def.gen_map_get();
+
+      if self.fun_defs.contains_key(&name) {
+        panic!("Def names collision should be checked at parse time")
+      }
+
+      self.fun_defs.insert(name, def.to_fun(source)?);
+    }
+
+    let ParseBook { fun_defs: defs, imp_defs: _, adts, ctrs, imports: _ } = self;
+    Ok(Book { defs, adts, ctrs, entrypoint: None })
+  }
+}
 
 impl Definition {
   pub fn to_fun(self, source: Source) -> Result<fun::Definition, String> {
@@ -407,7 +426,7 @@ impl Expr {
       Expr::Ctr { name, args, kwargs } => {
         assert!(kwargs.is_empty());
         let args = args.into_iter().map(Self::to_fun);
-        fun::Term::call(fun::Term::Ref { nam: name }, args)
+        fun::Term::call(fun::Term::Var { nam: name }, args)
       }
       Expr::LstMap { term, bind, iter, cond } => {
         const ITER_TAIL: &str = "%iter.tail";

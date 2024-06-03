@@ -1,6 +1,7 @@
 use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
-  fun::{load_book::do_parse_book, Adt, Book, Definition, Name, Source, Term},
+  fun::{load_book::do_parse_book, parser::ParseBook, Adt, Book, Name, Source, Term},
+  imp::{Expr, Stmt},
 };
 use indexmap::map::Entry;
 use indexmap::IndexMap;
@@ -18,7 +19,7 @@ pub struct Imports {
   /// Imported packages to be loaded in the program.
   /// When loaded, the book contents are drained to the parent book,
   /// adjusting def names accordingly.
-  pkgs: Vec<(Name, Book)>,
+  pkgs: Vec<(Name, ParseBook)>,
 }
 
 impl Imports {
@@ -40,7 +41,7 @@ impl Imports {
       let packages = loader.load_multiple(src.clone(), sub_imports)?;
 
       for (psrc, code) in packages {
-        let mut module = do_parse_book(&code, &psrc, Book::default())?;
+        let mut module = do_parse_book(&code, &psrc, ParseBook::default())?;
         module.imports.load_imports(loader)?;
         self.pkgs.push((psrc, module));
       }
@@ -64,12 +65,12 @@ impl Imports {
   }
 }
 
-impl Book {
-  pub fn apply_imports(&mut self) -> Result<(), Diagnostics> {
+impl ParseBook {
+  pub fn apply_imports(&mut self) -> Result<(), String> {
     self.apply_imports_go(None)
   }
 
-  fn apply_imports_go(&mut self, main_imports: Option<&IndexMap<Name, Name>>) -> Result<(), Diagnostics> {
+  fn apply_imports_go(&mut self, main_imports: Option<&IndexMap<Name, Name>>) -> Result<(), String> {
     self.load_packages(main_imports)?;
     self.apply_import_binds(main_imports);
     Ok(())
@@ -77,28 +78,29 @@ impl Book {
 
   /// Consumes the book imported packages,
   /// applying the imports recursively of every nested book.
-  fn load_packages(&mut self, main_imports: Option<&IndexMap<Name, Name>>) -> Result<(), Diagnostics> {
-    let mut pkgs = std::mem::take(&mut self.imports.pkgs);
-
-    for (src, package) in &mut pkgs {
+  fn load_packages(&mut self, main_imports: Option<&IndexMap<Name, Name>>) -> Result<(), String> {
+    for (src, mut package) in std::mem::take(&mut self.imports.pkgs) {
       // Can not be done outside the loop/function because of the borrow checker.
       // Just serves to pass only the import map of the first call to `apply_imports_go`.
       let main_imports = main_imports.unwrap_or(&self.imports.map);
 
       package.apply_imports_go(Some(main_imports))?;
-      let new_adts = package.apply_adts(src, main_imports);
-      let new_defs = package.apply_defs(src, main_imports);
+
+      let new_adts = package.apply_adts(&src, main_imports);
+      package.apply_defs(&src, main_imports);
+
+      let book = package.to_fun()?;
 
       for (name, adt) in new_adts {
         self.add_adt(name, adt).expect("Package src should be unique, impossible to have name conflicts");
       }
 
-      for def in new_defs.into_values() {
-        if self.defs.contains_key(&def.name) || self.ctrs.contains_key(&def.name) {
+      for def in book.defs.into_values() {
+        if self.contains_def(&def.name) || self.ctrs.contains_key(&def.name) {
           unreachable!("Package src should be unique, impossible to have name conflicts");
         }
 
-        self.defs.insert(def.name.clone(), def);
+        self.fun_defs.insert(def.name.clone(), def);
       }
     }
 
@@ -135,10 +137,14 @@ impl Book {
       }
     }
 
-    for def in self.defs.values_mut().filter(|d| matches!(d.source, Source::Local(..))) {
+    for def in self.fun_defs.values_mut().filter(|d| matches!(d.source, Source::Local(..))) {
       for rule in &mut def.rules {
-        rule.body = fold_uses(std::mem::take(&mut rule.body), local_imports.iter());
+        rule.body = std::mem::take(&mut rule.body).fold_uses(local_imports.iter());
       }
+    }
+
+    for (def, _) in self.imp_defs.values_mut().filter(|(_, source)| matches!(source, Source::Local(..))) {
+      def.body = std::mem::take(&mut def.body).fold_uses(local_imports.iter());
     }
   }
 
@@ -146,7 +152,7 @@ impl Book {
   /// and adding `use ctr = ctr_src` chains to every local definition.
   ///
   /// Must be used before `apply_defs`
-  fn apply_adts(&mut self, src: &mut Name, main_imp: &IndexMap<Name, Name>) -> IndexMap<Name, Adt> {
+  fn apply_adts(&mut self, src: &Name, main_imp: &IndexMap<Name, Name>) -> IndexMap<Name, Adt> {
     let adts = std::mem::take(&mut self.adts);
     let mut new_adts = IndexMap::new();
     let mut ctrs_map = IndexMap::new();
@@ -189,64 +195,99 @@ impl Book {
       new_adts.insert(name.clone(), adt);
     }
 
-    for def in self.defs.values_mut().filter(|d| matches!(d.source, Source::Local(..))) {
+    for def in self.fun_defs.values_mut().filter(|d| matches!(d.source, Source::Local(..))) {
       for rule in &mut def.rules {
-        rule.body = fold_uses(std::mem::take(&mut rule.body), ctrs_map.iter().rev());
+        rule.body = std::mem::take(&mut rule.body).fold_uses(ctrs_map.iter().rev());
       }
+    }
+
+    for (def, _) in self.imp_defs.values_mut().filter(|(_, source)| matches!(source, Source::Local(..))) {
+      def.body = std::mem::take(&mut def.body).fold_uses(ctrs_map.iter().rev());
     }
 
     new_adts
   }
 
-  /// Consumes the book definitions, applying the necessary naming transformations
+  /// Apply the necessary naming transformations to the book definitions,
   /// and adding `use def = def_src` chains to every local definition.
-  fn apply_defs(&mut self, src: &mut Name, main_imp: &IndexMap<Name, Name>) -> IndexMap<Name, Definition> {
-    let mut defs = std::mem::take(&mut self.defs);
+  fn apply_defs(&mut self, src: &Name, main_imp: &IndexMap<Name, Name>) {
     let mut def_map: IndexMap<_, _> = IndexMap::new();
 
     // Rename the definitions to their source name
     // Surrounded with `__` if not imported by the main book.
-    for def in defs.values_mut() {
-      match def.source {
-        Source::Local(..) => {
-          let mut new_name = Name::new(format!("{}/{}", src, def.name));
-
-          if !main_imp.values().contains(&new_name) {
-            new_name = Name::new(format!("__{}__", new_name));
-          }
-
-          def_map.insert(def.name.clone(), new_name.clone());
-          def.name = new_name;
-        }
-
-        Source::Imported => {}
-
-        Source::Builtin | Source::Generated => {
-          unreachable!("No builtin or generated definition should be present at this step")
-        }
-      }
+    for def in self.fun_defs.values_mut() {
+      update_name(&mut def.name, def.source, src, main_imp, &mut def_map);
     }
 
-    for (nam, def) in &mut defs {
+    for (def, source) in self.imp_defs.values_mut() {
+      update_name(&mut def.name, *source, src, main_imp, &mut def_map);
+    }
+
+    for (nam, def) in &mut self.fun_defs {
       if let Source::Local(..) = def.source {
         for rule in &mut def.rules {
-          rule.body =
-            fold_uses(std::mem::take(&mut rule.body), def_map.iter().rev().filter(|(n, _)| n != &nam));
+          let bod = std::mem::take(&mut rule.body);
+          rule.body = bod.fold_uses(def_map.iter().rev().filter(|(n, _)| n != &nam));
         }
         def.source = Source::Imported;
       }
     }
 
-    defs
+    for (nam, (def, source)) in &mut self.imp_defs {
+      if let Source::Local(..) = source {
+        let bod = std::mem::take(&mut def.body);
+        def.body = bod.fold_uses(def_map.iter().rev().filter(|(n, _)| n != &nam));
+        *source = Source::Imported;
+      }
+    }
   }
 }
 
-fn fold_uses<'a>(bod: Term, map: impl Iterator<Item = (&'a Name, &'a Name)>) -> Term {
-  map.fold(bod, |acc, (bind, nam)| Term::Use {
-    nam: Some(bind.clone()),
-    val: Box::new(Term::Var { nam: nam.clone() }),
-    nxt: Box::new(acc),
-  })
+fn update_name(
+  def_name: &mut Name,
+  def_source: Source,
+  src: &Name,
+  main_imp: &IndexMap<Name, Name>,
+  def_map: &mut IndexMap<Name, Name>,
+) {
+  match def_source {
+    Source::Local(..) => {
+      let mut new_name = Name::new(format!("{}/{}", src, def_name));
+
+      if !main_imp.values().contains(&new_name) {
+        new_name = Name::new(format!("__{}__", new_name));
+      }
+
+      def_map.insert(def_name.clone(), new_name.clone());
+      *def_name = new_name;
+    }
+
+    Source::Imported => {}
+
+    Source::Builtin | Source::Generated => {
+      unreachable!("No builtin or generated definition should be present at this step")
+    }
+  }
+}
+
+impl Term {
+  fn fold_uses<'a>(self, map: impl Iterator<Item = (&'a Name, &'a Name)>) -> Self {
+    map.fold(self, |acc, (bind, nam)| Term::Use {
+      nam: Some(bind.clone()),
+      val: Box::new(Term::Var { nam: nam.clone() }),
+      nxt: Box::new(acc),
+    })
+  }
+}
+
+impl Stmt {
+  fn fold_uses<'a>(self, map: impl Iterator<Item = (&'a Name, &'a Name)>) -> Stmt {
+    map.fold(self, |acc, (bind, nam)| Stmt::Use {
+      nam: bind.clone(),
+      val: Box::new(Expr::Var { nam: nam.clone() }),
+      nxt: Box::new(acc),
+    })
+  }
 }
 
 pub trait PackageLoader {

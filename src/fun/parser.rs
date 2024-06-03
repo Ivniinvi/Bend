@@ -1,14 +1,43 @@
 use crate::{
   fun::{
-    display::DisplayFn, Adt, Book, CtrField, Definition, FanKind, MatchRule, Name, Num, Op, Pattern, Rule,
+    display::DisplayFn, Adt, Adts, Constructors, CtrField, FanKind, MatchRule, Name, Num, Op, Pattern, Rule,
     Source, Tag, Term, STRINGS,
   },
   imp::parser::PyParser,
+  imports::Imports,
   maybe_grow,
 };
 use highlight_error::highlight_error;
 use indexmap::IndexMap;
 use TSPL::Parser;
+
+type FunDefinition = super::Definition;
+type ImpDefinition = crate::imp::Definition;
+
+/// Intermediate representation of a program.
+#[derive(Debug, Clone, Default)]
+pub struct ParseBook {
+  /// The `functional` function definitions.
+  pub fun_defs: IndexMap<Name, FunDefinition>,
+
+  /// The `imperative` function definitions.
+  pub imp_defs: IndexMap<Name, (ImpDefinition, Source)>,
+
+  /// The algebraic datatypes defined by the program
+  pub adts: Adts,
+
+  /// To which type does each constructor belong to.
+  pub ctrs: Constructors,
+
+  /// Imported packages to be loaded in the program
+  pub imports: Imports,
+}
+
+impl ParseBook {
+  pub fn contains_def(&self, name: &Name) -> bool {
+    self.fun_defs.contains_key(name) || self.imp_defs.contains_key(name)
+  }
+}
 
 // Bend grammar description:
 // <Book>       ::= (<Data> | <Rule>)*
@@ -64,7 +93,7 @@ impl<'a> TermParser<'a> {
 
   /* AST parsing functions */
 
-  pub fn parse_book(&mut self, default_book: Book, builtin: bool) -> ParseResult<Book> {
+  pub fn parse_book(&mut self, default_book: ParseBook, builtin: bool) -> ParseResult<ParseBook> {
     let mut book = default_book;
     let mut indent = self.advance_newlines();
     let mut last_rule = None;
@@ -144,7 +173,7 @@ impl<'a> TermParser<'a> {
       let (name, rule) = self.parse_rule()?;
       let end_idx = *self.index();
       // Add to book
-      if let Some(def) = book.defs.get_mut(&name) {
+      if let Some(def) = book.fun_defs.get_mut(&name) {
         if let Some(last_rule) = last_rule {
           if last_rule == name {
             // Continuing with a new rule to the current definition
@@ -165,7 +194,7 @@ impl<'a> TermParser<'a> {
       } else {
         // Adding the first rule of a new definition
         let source = if builtin { Source::Builtin } else { Source::Local(ini_idx, end_idx) };
-        book.defs.insert(name.clone(), Definition::new(name.clone(), vec![rule], source));
+        book.fun_defs.insert(name.clone(), FunDefinition::new(name.clone(), vec![rule], source));
       }
       indent = self.advance_newlines();
       last_rule = Some(name);
@@ -814,7 +843,7 @@ impl Indent {
   }
 }
 
-impl Book {
+impl ParseBook {
   pub fn add_adt(&mut self, nam: Name, adt: Adt) -> ParseResult<()> {
     if let Some(adt) = self.adts.get(&nam) {
       if adt.source.is_builtin() {

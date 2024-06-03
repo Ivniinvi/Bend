@@ -1,4 +1,7 @@
-use super::{parser::TermParser, Book};
+use super::{
+  parser::{ParseBook, TermParser},
+  Book,
+};
 use crate::imports::PackageLoader;
 use std::{fmt::Display, path::Path};
 
@@ -15,12 +18,22 @@ pub fn load_to_book<T: Display>(
   code: &str,
   mut package_loader: impl PackageLoader,
 ) -> Result<Book, String> {
-  let builtins = Book::default(); // TODO: revert back before merging
+  let builtins = ParseBook::builtins();
   let mut book = do_parse_book(code, origin, builtins)?;
+
   book.imports.load_imports(&mut package_loader)?;
+  book.apply_imports()?;
+
+  let mut book = book.to_fun()?;
+  book.desugar_ctr_use();
+
   Ok(book)
 }
 
-pub fn do_parse_book<T: Display>(code: &str, origin: T, book: Book) -> Result<Book, String> {
+pub fn do_parse_book<T: Display>(code: &str, origin: T, book: ParseBook) -> Result<ParseBook, String> {
   TermParser::new(code).parse_book(book, false).map_err(|e| format!("In {} :\n{}", origin, e))
+}
+
+pub fn do_parse_book_default<T: Display>(code: &str, origin: T) -> Result<Book, String> {
+  do_parse_book(code, origin, ParseBook::builtins())?.to_fun()
 }

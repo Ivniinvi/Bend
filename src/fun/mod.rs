@@ -1,6 +1,5 @@
 use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
-  imports::Imports,
   maybe_grow, multi_iterator, ENTRY_POINT,
 };
 use indexmap::{IndexMap, IndexSet};
@@ -47,9 +46,6 @@ pub struct Book {
 
   /// A custom or default "main" entrypoint.
   pub entrypoint: Option<Name>,
-
-  /// Imported packages to be loaded in the program
-  pub imports: Imports,
 }
 
 pub type Definitions = IndexMap<Name, Definition>;
@@ -739,6 +735,33 @@ impl Term {
       if nam == from {
         *self = to.clone();
       }
+    }
+  }
+
+  /// Substitute the occurrences of a constructor name with the given name.
+  pub fn subst_ctrs(&mut self, from: &Name, to: &Name) {
+    maybe_grow(|| {
+      for child in self.children_mut() {
+        child.subst_ctrs(from, to);
+      }
+    });
+
+    match self {
+      Term::Fold { arms, .. } | Term::Mat { arms, .. } => {
+        for (arm, _, _) in arms {
+          if let Some(nam) = arm {
+            if nam == from {
+              *nam = to.clone();
+            }
+          }
+        }
+      }
+      Term::Open { typ, .. } => {
+        if typ == from {
+          *typ = to.clone();
+        }
+      }
+      _ => (),
     }
   }
 
