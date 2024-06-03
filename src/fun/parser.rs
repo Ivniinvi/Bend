@@ -172,6 +172,12 @@ impl<'a> TermParser<'a> {
       let ini_idx = *self.index();
       let (name, rule) = self.parse_rule()?;
       let end_idx = *self.index();
+
+      if book.imp_defs.contains_key(&name) {
+        let msg = format!("Redefinition of function '{name}'");
+        return self.with_ctx(Err(msg), ini_idx, end_idx);
+      }
+
       // Add to book
       if let Some(def) = book.fun_defs.get_mut(&name) {
         if let Some(last_rule) = last_rule {
