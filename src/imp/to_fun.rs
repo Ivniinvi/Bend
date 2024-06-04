@@ -19,8 +19,8 @@ impl ParseBook {
       self.fun_defs.insert(name, def.to_fun(source)?);
     }
 
-    let ParseBook { fun_defs: defs, imp_defs: _, adts, ctrs, imports: _ } = self;
-    Ok(Book { defs, adts, ctrs, entrypoint: None })
+    let ParseBook { fun_defs: defs, imp_defs: _, adts, ctrs, imports } = self;
+    Ok(Book { defs, adts, ctrs, entrypoint: None, imports: imports.to_names() })
   }
 }
 

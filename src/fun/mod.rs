@@ -38,7 +38,7 @@ pub struct Book {
   /// The function definitions.
   pub defs: Definitions,
 
-  /// The algebraic datatypes defined by the program
+  /// The algebraic datatypes defined by the program.
   pub adts: Adts,
 
   /// To which type does each constructor belong to.
@@ -46,6 +46,9 @@ pub struct Book {
 
   /// A custom or default "main" entrypoint.
   pub entrypoint: Option<Name>,
+
+  /// Imports declared in the program.
+  pub imports: Vec<(Name, Vec<Name>)>,
 }
 
 pub type Definitions = IndexMap<Name, Definition>;

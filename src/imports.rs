@@ -32,8 +32,8 @@ impl Imports {
     Ok(())
   }
 
-  pub fn imports(&self) -> &[(Name, Vec<Name>)] {
-    &self.names
+  pub fn to_names(self) -> Vec<(Name, Vec<Name>)> {
+    self.names
   }
 
   pub fn load_imports(&mut self, loader: &mut impl PackageLoader) -> Result<(), String> {
