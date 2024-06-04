@@ -1,6 +1,6 @@
 use bend::{
   diagnostics::Diagnostics,
-  fun::{load_book::load_to_book, Name},
+  fun::load_book::load_to_book,
   imports::{check_book, DefaultLoader},
 };
 use bpm::*;
@@ -103,9 +103,7 @@ fn check(path: PathBuf, package_name: &str) -> Result<Package, Diagnostics> {
   let mut book = load_to_book(path.display(), &source, package_loader)?;
 
   // TODO: entrypoint set to package name, is there a better alternative?
-  book.entrypoint = Some(Name::new(package_name));
-
-  let diagnostics = check_book(&mut book)?;
+  let diagnostics = check_book(&mut book, package_name)?;
   eprint!("{diagnostics}");
 
   Ok(Package(source))
