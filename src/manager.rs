@@ -87,7 +87,7 @@ fn store_cmd(
   let package_name = format!("{}/{}", namespace, name);
 
   let pack = PackageDescriptor::new(Some(&version), &package_name);
-  let package = check(path, &name)?;
+  let package = check(path)?;
   store(pack, package)?;
 
   Ok(())
@@ -97,13 +97,12 @@ pub fn load_cmd(name: &str) -> Result<String, String> {
   load(&PackageDescriptor::from(name)).map(|Package(pack)| pack)
 }
 
-fn check(path: PathBuf, package_name: &str) -> Result<Package, Diagnostics> {
+fn check(path: PathBuf) -> Result<Package, Diagnostics> {
   let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
   let package_loader = DefaultLoader { local_path: None, loaded: HashSet::new(), load_fn: load_cmd };
   let mut book = load_to_book(path.display(), &source, package_loader)?;
 
-  // TODO: entrypoint set to package name, is there a better alternative?
-  let diagnostics = check_book(&mut book, package_name)?;
+  let diagnostics = check_book(&mut book)?;
   eprint!("{diagnostics}");
 
   Ok(Package(source))

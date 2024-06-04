@@ -360,11 +360,12 @@ impl<T: Fn(&str) -> Result<String, String>> PackageLoader for DefaultLoader<T> {
 
 #[allow(clippy::field_reassign_with_default)]
 /// Check book without warnings about unused definitions
-pub fn check_book(book: &mut Book, entrypoint: &str) -> Result<Diagnostics, Diagnostics> {
+pub fn check_book(book: &mut Book) -> Result<Diagnostics, Diagnostics> {
   let mut diagnostics_cfg = DiagnosticsConfig::default();
   diagnostics_cfg.unused_definition = crate::diagnostics::Severity::Allow;
+  diagnostics_cfg.missing_main = crate::diagnostics::Severity::Allow;
+
   let compile_opts = crate::CompileOpts::default();
 
-  book.entrypoint = Some(Name::new(entrypoint));
   crate::check_book(book, diagnostics_cfg, compile_opts)
 }
