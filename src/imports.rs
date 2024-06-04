@@ -47,7 +47,7 @@ impl Imports {
       }
 
       if sub_imports.is_empty() {
-        let (_namespace, name) = src.split_once('/').unwrap();
+        let name = src.split('/').last().unwrap();
 
         if let Entry::Vacant(v) = self.map.entry(Name::new(name)) {
           v.insert(Name::new(format!("{}/{}", src, name)));
