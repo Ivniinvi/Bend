@@ -30,7 +30,7 @@ pub fn book_to_hvm(book: &Book, diags: &mut Diagnostics) -> Result<(hvm::ast::Bo
       let name = if main.is_some_and(|m| &def.name == m) {
         book.hvm_entrypoint().to_string()
       } else {
-        def.name.0.to_string()
+        def.name.0.replace('@', "$")
       };
 
       match net {
@@ -111,7 +111,7 @@ impl<'t, 'l> EncodeTermState<'t, 'l> {
         Term::Era => self.link(up, Place::Tree(LoanedMut::new(Tree::Era))),
         Term::Var { nam } => self.link_var(false, nam, up),
         Term::Link { nam } => self.link_var(true, nam, up),
-        Term::Ref { nam } => self.link(up, Place::Tree(LoanedMut::new(Tree::Ref { nam: nam.to_string() }))),
+        Term::Ref { nam } => self.link(up, Place::Tree(LoanedMut::new(Tree::Ref { nam: nam.replace('@', "$") }))),
         Term::Num { val } => {
           let val = hvm::ast::Numb(val.to_bits());
           self.link(up, Place::Tree(LoanedMut::new(Tree::Num { val })))

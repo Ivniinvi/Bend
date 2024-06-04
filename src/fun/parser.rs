@@ -249,7 +249,8 @@ impl<'a> TermParser<'a> {
 
   fn parse_import(&mut self) -> Result<(Name, Vec<Name>), String> {
     // use package
-    let import = self.labelled(|p| p.parse_bend_name_import(), "package name")?;
+    self.skip_trivia();
+    let import = self.labelled(|p| p.parse_restricted_name("Top-level", true), "import name")?;
 
     if self.try_consume("{") {
       let sub = self.list_like(|p| p.parse_bend_name(), "", "}", ",", false, 0)?;
@@ -886,9 +887,9 @@ pub trait ParserCommons<'a>: Parser<'a> {
     }
   }
 
-  fn parse_restricted_name(&mut self, kind: &str) -> ParseResult<Name> {
+  fn parse_restricted_name(&mut self, kind: &str, import: bool) -> ParseResult<Name> {
     let ini_idx = *self.index();
-    let name = self.take_while(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' || c == '/');
+    let name = self.take_while(|c| c.is_ascii_alphanumeric() || "_.-/".contains(c) || import && c == '@');
     if name.is_empty() {
       self.expected("name")?
     }
@@ -905,24 +906,12 @@ pub trait ParserCommons<'a>: Parser<'a> {
     }
   }
 
-  /// Parses a name from the input, supporting alphanumeric characters, underscores, periods, hyphens, and at.
-  fn parse_bend_name_import(&mut self) -> Result<Name, String> {
-    self.skip_trivia();
-    let name = self
-      .take_while(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' || c == '/' || c == '@');
-    if name.is_empty() {
-      self.expected("name")
-    } else {
-      Ok(Name::new(name))
-    }
-  }
-
   fn parse_top_level_name(&mut self) -> ParseResult<Name> {
-    self.parse_restricted_name("Top-level")
+    self.parse_restricted_name("Top-level", false)
   }
 
   fn parse_bend_name(&mut self) -> ParseResult<Name> {
-    self.parse_restricted_name("Variable")
+    self.parse_restricted_name("Variable", false)
   }
 
   /// Consumes exactly the text without skipping.
