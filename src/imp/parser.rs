@@ -1,7 +1,7 @@
 use crate::{
   fun::{
-    parser::{is_num_char, Indent, ParseResult, ParserCommons},
-    Adt, Book, CtrField, Name, Num, Op, STRINGS,
+    parser::{is_num_char, Indent, ParseBook, ParseResult, ParserCommons},
+    Adt, CtrField, Name, Num, Op, Source, STRINGS,
   },
   imp::{AssignPattern, Definition, Enum, Expr, InPlaceOp, MatchArm, Stmt, Variant},
   maybe_grow,
@@ -1041,13 +1041,13 @@ impl<'a> PyParser<'a> {
 
   pub fn add_def(
     &mut self,
-    mut def: Definition,
-    book: &mut Book,
+    def: Definition,
+    book: &mut ParseBook,
     ini_idx: usize,
     end_idx: usize,
     builtin: bool,
   ) -> ParseResult<()> {
-    if book.defs.contains_key(&def.name) {
+    if book.contains_def(&def.name) {
       let msg = format!("Redefinition of function '{}'.", def.name);
       return self.with_ctx(Err(msg), ini_idx, end_idx);
     }
@@ -1055,17 +1055,16 @@ impl<'a> PyParser<'a> {
       let msg = format!("Redefinition of constructor '{}'.", def.name);
       return self.with_ctx(Err(msg), ini_idx, end_idx);
     }
-    def.order_kwargs(book)?;
-    def.gen_map_get();
-    let def = def.to_fun(builtin)?;
-    book.defs.insert(def.name.clone(), def);
+
+    let source = if builtin { Source::Builtin } else { Source::Local(ini_idx, end_idx) };
+    book.imp_defs.insert(def.name.clone(), (def, source));
     Ok(())
   }
 
   pub fn add_type(
     &mut self,
     r#enum: Enum,
-    book: &mut Book,
+    book: &mut ParseBook,
     ini_idx: usize,
     end_idx: usize,
     builtin: bool,
@@ -1074,9 +1073,10 @@ impl<'a> PyParser<'a> {
       let msg = format!("Redefinition of type '{}'.", r#enum.name);
       return self.with_ctx(Err(msg), ini_idx, end_idx);
     }
-    let mut adt = Adt { ctrs: Default::default(), builtin };
+    let source = if builtin { Source::Builtin } else { Source::Local(ini_idx, end_idx) };
+    let mut adt = Adt { ctrs: Default::default(), source };
     for variant in r#enum.variants {
-      if book.defs.contains_key(&variant.name) {
+      if book.contains_def(&variant.name) {
         let msg = format!("Redefinition of function '{}'.", variant.name);
         return self.with_ctx(Err(msg), ini_idx, end_idx);
       }
@@ -1094,7 +1094,7 @@ impl<'a> PyParser<'a> {
   pub fn add_object(
     &mut self,
     obj: Variant,
-    book: &mut Book,
+    book: &mut ParseBook,
     ini_idx: usize,
     end_idx: usize,
     builtin: bool,
@@ -1103,8 +1103,9 @@ impl<'a> PyParser<'a> {
       let msg = format!("Redefinition of type '{}'.", obj.name);
       return self.with_ctx(Err(msg), ini_idx, end_idx);
     }
-    let mut adt = Adt { ctrs: Default::default(), builtin };
-    if book.defs.contains_key(&obj.name) {
+    let source = if builtin { Source::Builtin } else { Source::Local(ini_idx, end_idx) };
+    let mut adt = Adt { ctrs: Default::default(), source };
+    if book.contains_def(&obj.name) {
       let msg = format!("Redefinition of function '{}'.", obj.name);
       return self.with_ctx(Err(msg), ini_idx, end_idx);
     }

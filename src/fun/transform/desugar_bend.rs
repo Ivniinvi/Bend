@@ -87,8 +87,7 @@ impl Term {
         let body = Term::rfold_lams(body, free_vars.iter().cloned().map(Some));
 
         // Make a definition from the new function
-        let def =
-          Definition { name: new_nam.clone(), rules: vec![Rule { pats: vec![], body }], builtin: false };
+        let def = Definition::new_gen(new_nam.clone(), vec![Rule { pats: vec![], body }], false);
         new_defs.push(def);
 
         // Call the new function in the original term.
